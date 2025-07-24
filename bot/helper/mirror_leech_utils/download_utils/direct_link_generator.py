@@ -1373,7 +1373,6 @@ def gofile(url):
             __fetch_links(session, _id)
         except Exception as e:
             raise DirectDownloadLinkException(e)
-
     if len(details["contents"]) == 1:
         return (details["contents"][0]["url"], details["header"])
     return details
@@ -1389,7 +1388,7 @@ def mediafireFolder(url):
         raw = url.split("/", 4)[-1]
         folderkey = raw.split("/", 1)[0]
         folderkey = folderkey.split(",")
-    except Exception:
+    except:
         raise DirectDownloadLinkException("ERROR: Could not parse ")
     if len(folderkey) == 1:
         folderkey = folderkey[0]
@@ -1446,21 +1445,58 @@ def mediafireFolder(url):
         parsed_url = urlparse(url)
         url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
 
-        def __repair_download(url):
-            try:
-                html = HTML(session.get(url).text)
-                if new_link := html.xpath('//a[@id="continue-btn"]/@href'):
-                    return __scraper(f"https://mediafire.com/{new_link[0]}")
-            except Exception:
-                return
-
         try:
             html = HTML(session.get(url).text)
-        except Exception:
-            return
+        except:
+            return None
         if html.xpath("//div[@class='passwordPrompt']"):
             if not _password:
                 raise DirectDownloadLinkException(
+                    f"ERROR: {PASSWORD_ERROR_MESSAGE}".format(url)
+                )
+            try:
+                html = HTML(session.post(url, data={"downloadp": _password}).text)
+            except:
+                return None
+            if html.xpath("//div[@class='passwordPrompt']"):
+                return None
+        try:
+            final_link = __decode_url(html)
+        except:
+            return None
+        return final_link
+    
+    def __decode_url(html):
+        enc_url = html.xpath('//a[@id="downloadButton"]')
+        if enc_url:
+            final_link = enc_url[0].attrib.get('href')
+            scrambled = enc_url[0].attrib.get('data-scrambled-url')
+            if final_link and scrambled:
+                try:
+                    final_link = b64decode(scrambled).decode("utf-8")
+                    return final_link
+                except:
+                    return None
+            elif final_link.startswith("http"):
+                return final_link
+            elif final_link.startswith("//"):
+                return __scraper(f"https:{final_link}")
+            else:
+                return None
+        else:
+            return None
+
+    def __get_content(folderKey, folderPath="", content_type="folders"):
+        try:
+            params = {
+                "content_type": content_type,
+                "folder_key": folderKey,
+                "response_format": "json",
+            }
+            _json = session.get(
+                "https://www.mediafire.com/api/1.5/folder/get_content.php",
+                params=params,
+            ).json()
         except Exception as e:
             raise DirectDownloadLinkException(
                 f"ERROR: {e.__class__.__name__} While getting content"
